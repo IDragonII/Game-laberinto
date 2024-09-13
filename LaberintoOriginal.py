@@ -1,6 +1,7 @@
 import pygame
 import heapq
 import time
+from collections import deque
 
 ANCHO_MAXIMO = 700
 ALTO_MAXIMO = 700
@@ -24,15 +25,21 @@ def calcular_tamano_celdas(filas, columnas):
     tam_celda = min(ANCHO_MAXIMO // columnas, ALTO_MAXIMO // filas)
     return tam_celda
 
-def resolver_laberinto(laberinto, inicio, fin, pantalla, imagen_pared, tam_celda, modo_automatico, velocidad, imagen_camino_original,imagen_inicio,imagen_objetivo):
+
+def resolver_laberinto(laberinto, inicio, fin, pantalla, imagen_pared, tam_celda, modo_automatico, velocidad, imagen_camino_original, imagen_inicio, imagen_objetivo, metodo_resolucion="A*"):
     filas, columnas = len(laberinto), len(laberinto[0])
     movimientos = [(0, 1), (0, -1), (1, 0), (-1, 0)]
 
     def heuristica(a, b):
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
-    cola = []
-    heapq.heappush(cola, (0, inicio))
+    if metodo_resolucion == "A*" or metodo_resolucion == "Greedy":
+        cola = []
+        heapq.heappush(cola, (0, inicio))
+    elif metodo_resolucion == "BFS":
+        cola = deque([inicio])
+    elif metodo_resolucion == "DFS":
+        cola = [inicio]
 
     padres = {}
     padres[inicio] = None
@@ -43,7 +50,12 @@ def resolver_laberinto(laberinto, inicio, fin, pantalla, imagen_pared, tam_celda
     reloj = pygame.time.Clock()
 
     while cola:
-        _, actual = heapq.heappop(cola)
+        if metodo_resolucion == "A*" or metodo_resolucion == "Greedy":
+            _, actual = heapq.heappop(cola)
+        elif metodo_resolucion == "BFS":
+            actual = cola.popleft()
+        elif metodo_resolucion == "DFS":
+            actual = cola.pop()
 
         if actual == fin:
             camino = []
@@ -57,18 +69,33 @@ def resolver_laberinto(laberinto, inicio, fin, pantalla, imagen_pared, tam_celda
             if 0 <= vecino[0] < filas and 0 <= vecino[1] < columnas:
                 if laberinto[vecino[0]][vecino[1]] != '#':
                     nuevo_costo = costos[actual] + 1
+                    heur = heuristica(vecino, fin)
+
+                    if metodo_resolucion == "A*":
+                        prioridad = nuevo_costo + heur  # A*
+                    elif metodo_resolucion == "Greedy":
+                        prioridad = heur  # Greedy
+                    elif metodo_resolucion == "BFS" or metodo_resolucion == "DFS":
+                        prioridad = nuevo_costo
+
                     if vecino not in costos or nuevo_costo < costos[vecino]:
                         costos[vecino] = nuevo_costo
-                        prioridad = nuevo_costo + heuristica(vecino, fin)
-                        heapq.heappush(cola, (prioridad, vecino))
+                        if metodo_resolucion == "A*" or metodo_resolucion == "Greedy":
+                            heapq.heappush(cola, (prioridad, vecino))
+                        else:
+                            if metodo_resolucion == "BFS":
+                                cola.append(vecino)
+                            else:  # DFS
+                                cola.append(vecino)
+
                         padres[vecino] = actual
 
                         if laberinto[vecino[0]][vecino[1]] not in ('S', 'E'):
                             laberinto[vecino[0]][vecino[1]] = 'V'
-                            dibujar_laberinto(pantalla, laberinto, imagen_pared, tam_celda, imagen_camino_original,imagen_inicio,imagen_objetivo)
+                            dibujar_laberinto(pantalla, laberinto, imagen_pared, tam_celda, imagen_camino_original, imagen_inicio, imagen_objetivo)
                             pygame.display.update()
                             if modo_automatico:
-                                time.sleep(0.05)
+                                time.sleep(velocidad)
 
     return None
 
@@ -89,6 +116,26 @@ def dibujar_laberinto(pantalla, laberinto, imagen_pared, tam_celda, imagen_camin
                 pygame.draw.rect(pantalla, COLOR_VISITADO, (columna * tam_celda, fila * tam_celda, tam_celda, tam_celda))
             else:
                 pantalla.blit(imagen_camino_original, (columna * tam_celda, fila * tam_celda))
+
+def mostrar_seleccion_metodo(pantalla, botones, fuente, fondo_menu, imagen_boton_normal, imagen_boton_hover):
+    if pantalla is None:
+        return None
+
+    while True:
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                pygame.quit()
+                return None
+
+            if evento.type == pygame.MOUSEBUTTONDOWN:
+                for metodo, boton in botones.items():
+                    if boton.collidepoint(evento.pos):
+                        return metodo
+
+        pantalla.blit(fondo_menu, (200, 200))
+        for texto, boton in botones.items():
+            dibujar_boton(pantalla, texto, boton, imagen_boton_normal, imagen_boton_hover, COLOR_TEXTO, fuente)
+        pygame.display.update()
 
 def limpiar_caminos_explorados(laberinto, camino):
     for fila in range(len(laberinto)):
@@ -229,15 +276,15 @@ def mostrar_menu(pantalla, fondo_menu, boton_iniciar, boton_salir, fuente, image
         for evento in pygame.event.get():
             if evento.type == pygame.QUIT:
                 pygame.quit()
-                return
+                return "salir"
 
             if evento.type == pygame.MOUSEBUTTONDOWN:
                 if boton_iniciar.collidepoint(evento.pos):
                     return
                 elif boton_salir.collidepoint(evento.pos):
                     pygame.quit()
-                    return
-
+                    return "salir"
+            
         pantalla.blit(fondo_menu, (0, 0))
         dibujar_boton(pantalla, "Iniciar", boton_iniciar, imagen_boton_normal, imagen_boton_hover, COLOR_TEXTO, fuente)
         dibujar_boton(pantalla, "Salir", boton_salir, imagen_boton_normal, imagen_boton_hover, COLOR_TEXTO, fuente)
@@ -248,10 +295,11 @@ def mostrar_seleccion_niveles(pantalla, botones, fuente, fondo_menu,imagen_boton
         return
 
     while True:
+        pygame.init()
         for evento in pygame.event.get():
             if evento.type == pygame.QUIT:
                 pygame.quit()
-                return
+                return None
 
             if evento.type == pygame.MOUSEBUTTONDOWN:
                 for nivel, boton in botones.items():
@@ -262,6 +310,10 @@ def mostrar_seleccion_niveles(pantalla, botones, fuente, fondo_menu,imagen_boton
         for texto, boton in botones.items():
             dibujar_boton(pantalla, texto, boton, imagen_boton_normal, imagen_boton_hover, COLOR_TEXTO, fuente)
         pygame.display.update()
+
+def seleccionar_niveles(pantalla, botones_niveles, fuente, imagen_fondo_menu, imagen_boton_normal, imagen_boton_hover):
+    nivel_seleccionado = mostrar_seleccion_niveles(pantalla, botones_niveles, fuente, imagen_fondo_menu, imagen_boton_normal, imagen_boton_hover)
+    return nivel_seleccionado
 
 def iniciar_juego(archivo_laberinto):
     global laberinto, inicio, fin, camino_resuelto
@@ -275,8 +327,17 @@ def iniciar_juego(archivo_laberinto):
     imagen_camino = pygame.transform.scale(imagen_camino_original, (tam_celda, tam_celda))
     imagen_inicio = pygame.transform.scale(imagen_inicio_original, (tam_celda, tam_celda))
     imagen_objetivo = pygame.transform.scale(imagen_objetivo_original, (tam_celda, tam_celda))
+    imagen_opciones = pygame.transform.scale(imagen_panel_opciones, (tam_celda, tam_celda))
+    imagen_opciones = pygame.transform.scale(imagen_opciones, (300, 350))
+    
     camino_resuelto = False
 
+    botones_metodo = {
+        "A*": pygame.Rect(ANCHO_MAXIMO // 2 - 100, ALTO_MAXIMO // 2 - 90, 200, 62),
+        "Greedy": pygame.Rect(ANCHO_MAXIMO // 2 - 100, ALTO_MAXIMO // 2 - 30, 200, 62),
+        "BFS": pygame.Rect(ANCHO_MAXIMO // 2 - 100, ALTO_MAXIMO // 2 + 30, 200, 62),
+        "DFS": pygame.Rect(ANCHO_MAXIMO // 2 - 100, ALTO_MAXIMO // 2 + 90, 200, 62)
+    }
     while True:
         if pantalla is None:
             return
@@ -289,31 +350,33 @@ def iniciar_juego(archivo_laberinto):
             if evento.type == pygame.MOUSEBUTTONDOWN:
                 if boton_automatico.collidepoint(evento.pos):
                     if not camino_resuelto:
-                        camino = resolver_laberinto(laberinto, inicio, fin, pantalla, imagen_pared, tam_celda, True, 0.1,imagen_camino,imagen_inicio,imagen_objetivo)
-                        if camino:
-                            mostrar_camino(pantalla, laberinto, camino, inicio, fin, imagen_pared, tam_celda,imagen_camino,imagen_inicio,imagen_objetivo)
-                            cantidad_movimientos = mover_personaje(pantalla, laberinto, camino, inicio, fin, imagen_pared, imagen_personaje, tam_celda,imagen_camino,imagen_inicio,imagen_objetivo)
-                            mostrar_ganador(pantalla, imagen_winner, boton_reintentar, fuente, cantidad_movimientos,imagen_boton_normal,imagen_boton_hover)
-                            camino_resuelto = True
+                        metodo_resolucion = mostrar_seleccion_metodo(pantalla, botones_metodo, fuente, imagen_opciones, imagen_boton_normal, imagen_boton_hover)
+                        if metodo_resolucion:
+                            camino = resolver_laberinto(laberinto, inicio, fin, pantalla, imagen_pared, tam_celda, True, 0.1, imagen_camino, imagen_inicio, imagen_objetivo, metodo_resolucion)
+                            if camino:
+                                mostrar_camino(pantalla, laberinto, camino, inicio, fin, imagen_pared, tam_celda, imagen_camino, imagen_inicio, imagen_objetivo)
+                                cantidad_movimientos = mover_personaje(pantalla, laberinto, camino, inicio, fin, imagen_pared, imagen_personaje, tam_celda, imagen_camino, imagen_inicio, imagen_objetivo)
+                                mostrar_ganador(pantalla, imagen_winner, boton_reintentar, fuente, cantidad_movimientos, imagen_boton_normal, imagen_boton_hover)
+                                camino_resuelto = True
                 elif boton_manual.collidepoint(evento.pos):
                     if not camino_resuelto:
-                        cantidad_movimientos = mover_personaje_manual(pantalla, laberinto, inicio, fin, imagen_pared, imagen_personaje, tam_celda,imagen_camino,imagen_inicio,imagen_objetivo)
+                        cantidad_movimientos = mover_personaje_manual(pantalla, laberinto, inicio, fin, imagen_pared, imagen_personaje, tam_celda, imagen_camino, imagen_inicio, imagen_objetivo)
                         if cantidad_movimientos > 0:
-                            mostrar_ganador(pantalla, imagen_winner, boton_reintentar, fuente, cantidad_movimientos,imagen_boton_normal,imagen_boton_hover)
+                            mostrar_ganador(pantalla, imagen_winner, boton_reintentar, fuente, cantidad_movimientos, imagen_boton_normal, imagen_boton_hover)
                             camino_resuelto = True
                 elif boton_reintentar.collidepoint(evento.pos):
                     return
 
         if not camino_resuelto:
             pantalla.fill((0, 0, 0))
-            dibujar_laberinto(pantalla, laberinto, imagen_pared, tam_celda,imagen_camino,imagen_inicio,imagen_objetivo)
-            dibujar_boton(pantalla, "Automatico", boton_automatico, imagen_boton_norma_auto, imagen_boton_hover_auto, COLOR_TEXTO, fuenteAM)
+            dibujar_laberinto(pantalla, laberinto, imagen_pared, tam_celda, imagen_camino, imagen_inicio, imagen_objetivo)
+            dibujar_boton(pantalla, "Automático", boton_automatico, imagen_boton_norma_auto, imagen_boton_hover_auto, COLOR_TEXTO, fuenteAM)
             dibujar_boton(pantalla, "Manual", boton_manual, imagen_boton_norma_auto, imagen_boton_hover_auto, COLOR_TEXTO, fuenteAM)
             pygame.display.update()
 
 def main():
     pygame.init()
-    global pantalla, fuente, fuenteAM, imagen_pared_original,imagen_objetivo_original, imagen_inicio_original, imagen_personaje_original,imagen_camino_original , imagen_winner,imagen_boton_normal,imagen_boton_hover, imagen_boton_norma_auto,imagen_boton_hover_auto
+    global pantalla,imagen_panel_opciones, fuente, fuenteAM, imagen_pared_original,imagen_objetivo_original, imagen_inicio_original, imagen_personaje_original,imagen_camino_original , imagen_winner,imagen_boton_normal,imagen_boton_hover, imagen_boton_norma_auto,imagen_boton_hover_auto
     global boton_automatico, boton_manual, boton_reintentar, boton_iniciar, boton_salir
 
     pantalla = pygame.display.set_mode((ANCHO_MAXIMO, ALTO_MAXIMO))
@@ -329,7 +392,7 @@ def main():
     imagen_fondo_menu = pygame.image.load("fondo_menu.png").convert()
     imagen_boton_normal = pygame.image.load("imagen_boton.png").convert_alpha()
     imagen_boton_hover = pygame.image.load("imagen_boton_hover.png").convert_alpha()
-
+    imagen_panel_opciones = pygame.image.load("opciones.png").convert_alpha()
     imagen_boton_normal = pygame.transform.scale(imagen_boton_normal, (200, 60))
     imagen_boton_hover = pygame.transform.scale(imagen_boton_hover, (200, 60))
 
@@ -355,7 +418,7 @@ def main():
         mostrar_menu(pantalla, imagen_fondo_menu, boton_iniciar, boton_salir, fuente, imagen_boton_normal, imagen_boton_hover)
 
     def seleccionar_nivel():
-        nivel_seleccionado = mostrar_seleccion_niveles(pantalla, botones_niveles, fuente, imagen_fondo_menu,imagen_boton_normal, imagen_boton_hover)
+        nivel_seleccionado = seleccionar_niveles(pantalla, botones_niveles, fuente, imagen_fondo_menu,imagen_boton_normal, imagen_boton_hover)
         if nivel_seleccionado:
             archivos_niveles = {
                 "Nivel 1": 'maze.txt',
